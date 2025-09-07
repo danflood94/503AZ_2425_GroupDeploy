@@ -230,100 +230,152 @@ Resources:
       UserData:
         Fn::Base64: !Sub |
           #!/bin/bash
+          set -xe
+        
+          # Update packages
           dnf update -y
-          
-          # Add MongoDB repository to find mongodb-mongosh
-          echo "[mongodb-org-7.0]" > /etc/yum.repos.d/mongodb-org-7.0.repo
-          echo "name=MongoDB Repository" >> /etc/yum.repos.d/mongodb-org-7.0.repo
-          echo "baseurl=https://repo.mongodb.org/yum/amazon/2023/mongodb-org/7.0/x86_64/" >> /etc/yum.repos.d/mongodb-org-7.0.repo
-          echo "gpgcheck=1" >> /etc/yum.repos.d/mongodb-org-7.0.repo
-          echo "enabled=1" >> /etc/yum.repos.d/mongodb-org-7.0.repo
-          echo "gpgkey=https://www.mongodb.org/static/pgp/server-7.0.asc" >> /etc/yum.repos.d/mongodb-org-7.0.repo
-          
-          # Use correct, generic package names for AL2023
-          dnf install -y httpd php php-pear mongodb-mongosh php-devel gcc make
-          
-          # Install Composer globally for a more robust installation
+        
+          # Add MongoDB repository
+          cat <<EOF > /etc/yum.repos.d/mongodb-org-7.0.repo
+          [mongodb-org-7.0]
+          name=MongoDB Repository
+          baseurl=https://repo.mongodb.org/yum/amazon/2023/mongodb-org/7.0/x86_64/
+          gpgcheck=1
+          enabled=1
+          gpgkey=https://www.mongodb.org/static/pgp/server-7.0.asc
+          EOF
+        
+          # Install required packages
+          dnf install -y httpd php php-fpm php-pear php-devel gcc make \
+                         php-cli php-json php-openssl unzip \
+                         mongodb-mongosh
+        
+          # Install Composer globally
           curl -sS https://getcomposer.org/installer | php
           mv composer.phar /usr/local/bin/composer
-          
-          # Install MongoDB PHP Driver
+          chmod +x /usr/local/bin/composer
+          composer --version
+        
+          # Install MongoDB PHP Driver via PECL
           pecl channel-update pecl.php.net
-          pecl install mongodb
-          echo "extension=mongodb.so" >> /etc/php.ini
-
-          # Turn on error display in php.ini for easier debugging
+          printf "\n" | pecl install mongodb
+          echo "extension=mongodb.so" > /etc/php.d/50-mongodb.ini
+        
+          # Enable error display in PHP
           sed -i 's/display_errors = Off/display_errors = On/' /etc/php.ini
-          
-          # Allow Apache to make network connections for SELinux
+        
+          # Allow Apache network access
           setsebool -P httpd_can_network_connect 1
-          
-          # Write the PHP application to display crop data from MongoDB
-          cat <<EOF > /var/www/html/index.php
+        
+          # Write dashboard app
+          cat <<'EOF' > /var/www/html/index.php
           <?php
-          // Force error reporting to the browser for debugging
           ini_set('display_errors', 1);
           ini_set('display_startup_errors', 1);
           error_reporting(E_ALL);
+        
+          require '/var/www/html/vendor/autoload.php';
+        
+          $mongoIp = "${MongoEC2Instance.PrivateIp}";
+          $uri = "mongodb://$mongoIp:27017";
+        
+          try {
+              $client = new MongoDB\Client($uri);
+              $db = $client->urbangrow;
           ?>
           <!DOCTYPE html>
           <html>
           <head>
-              <title>UrbanGrow Crop Data</title>
+              <title>UrbanGrow Dashboard</title>
               <style>
                   body { font-family: Arial, sans-serif; margin: 2em; background-color: #f4f4f4; color: #333; }
                   h1 { color: #2e8b57; }
-                  table { border-collapse: collapse; width: 100%; box-shadow: 0 2px 3px rgba(0,0,0,0.1); }
+                  details { margin-bottom: 1.5em; }
+                  summary { font-size: 1.2em; font-weight: bold; color: #2e8b57; cursor: pointer; }
+                  table { border-collapse: collapse; width: 100%; margin-top: 1em; box-shadow: 0 2px 3px rgba(0,0,0,0.1); }
                   th, td { border: 1px solid #ddd; padding: 12px; text-align: left; }
                   th { background-color: #2e8b57; color: white; }
                   tr:nth-child(even) { background-color: #f9f9f9; }
                   .error { color: red; font-weight: bold; }
+                  pre { margin: 0; font-size: 0.9em; }
               </style>
           </head>
           <body>
-          <h1>UrbanGrow Live Crop Data</h1>
-          <?php
-          require '/var/www/html/vendor/autoload.php';
-          // INSECURE: Connecting directly from a public web server to the database using its private IP.
-          \$mongoIp = "${MongoEC2Instance.PrivateIp}";
-          \$uri = "mongodb://\$mongoIp:27017";
-          try {
-              \$client = new MongoDB\Client(\$uri);
-              \$collection = \$client->urbangrow->crop_data;
-              \$cursor = \$collection->find();
-              echo "<table>";
-              echo "<tr><th>Batch ID</th><th>Species</th><th>Status</th><th>Temperature (&deg;C)</th><th>Humidity (%)</th></tr>";
-              foreach (\$cursor as \$document) {
-                  echo "<tr>";
-                  echo "<td>" . htmlspecialchars(\$document['batch_id'] ?? 'N/A') . "</td>";
-                  echo "<td>" . htmlspecialchars(\$document['species'] ?? 'N/A') . "</td>";
-                  echo "<td>" . htmlspecialchars(\$document['status'] ?? 'N/A') . "</td>";
-                  echo "<td>" . htmlspecialchars(\$document['sensor_readings']['temperature_c'] ?? 'N/A') . "</td>";
-                  echo "<td>" . htmlspecialchars(\$document['sensor_readings']['humidity_percent'] ?? 'N/A') . "</td>";
-                  echo "</tr>";
-              }
-              echo "</table>";
-          } catch (Exception \$e) {
-              echo "<p class='error'>Failed to connect to MongoDB: " . \$e->getMessage() . "</p>";
-          }
-          ?>
+              <h1>UrbanGrow Live Data</h1>
+        
+              <!-- Crop Data -->
+              <details open>
+                <summary>Crop Data</summary>
+                <table>
+                    <tr><th>Batch ID</th><th>Species</th><th>Status</th><th>Temperature (°C)</th><th>Humidity (%)</th></tr>
+                    <?php foreach ($db->crop_data->find() as $doc): ?>
+                        <tr>
+                            <td><?= htmlspecialchars($doc['batch_id'] ?? 'N/A') ?></td>
+                            <td><?= htmlspecialchars($doc['species'] ?? 'N/A') ?></td>
+                            <td><?= htmlspecialchars($doc['status'] ?? 'N/A') ?></td>
+                            <td><?= htmlspecialchars($doc['sensor_readings']['temperature_c'] ?? 'N/A') ?></td>
+                            <td><?= htmlspecialchars($doc['sensor_readings']['humidity_percent'] ?? 'N/A') ?></td>
+                        </tr>
+                    <?php endforeach; ?>
+                </table>
+              </details>
+        
+              <!-- Staff Data -->
+              <details>
+                <summary>Staff Data</summary>
+                <table>
+                    <tr><th>Staff ID</th><th>Name</th><th>Job Role</th><th>Contact</th><th>Qualifications</th></tr>
+                    <?php foreach ($db->staff_data->find() as $doc): ?>
+                        <tr>
+                            <td><?= htmlspecialchars($doc['staff_id'] ?? 'N/A') ?></td>
+                            <td><?= htmlspecialchars($doc['name'] ?? 'N/A') ?></td>
+                            <td><?= htmlspecialchars($doc['job_role'] ?? 'N/A') ?></td>
+                            <td><?= htmlspecialchars($doc['contact'] ?? 'N/A') ?></td>
+                            <td><?= htmlspecialchars(implode(", ", $doc['qualifications'] ?? [])) ?></td>
+                        </tr>
+                    <?php endforeach; ?>
+                </table>
+              </details>
+        
+              <!-- Operational Data -->
+              <details>
+                <summary>Operational Logs</summary>
+                <table>
+                    <tr><th>Log ID</th><th>Timestamp</th><th>System</th><th>Event Type</th><th>Details</th></tr>
+                    <?php foreach ($db->operational_data->find() as $doc): ?>
+                        <tr>
+                            <td><?= htmlspecialchars($doc['log_id'] ?? 'N/A') ?></td>
+                            <td><?= htmlspecialchars($doc['timestamp']->toDateTime()->format('Y-m-d H:i:s') ?? 'N/A') ?></td>
+                            <td><?= htmlspecialchars($doc['system'] ?? 'N/A') ?></td>
+                            <td><?= htmlspecialchars($doc['event_type'] ?? 'N/A') ?></td>
+                            <td><pre><?= htmlspecialchars(json_encode($doc['details'] ?? [], JSON_PRETTY_PRINT)) ?></pre></td>
+                        </tr>
+                    <?php endforeach; ?>
+                </table>
+              </details>
+        
           </body>
           </html>
+          <?php
+          } catch (Exception $e) {
+              echo "<p class='error'>Failed to connect to MongoDB: " . $e->getMessage() . "</p>";
+          }
+          ?>
           EOF
-
-          # Change directory and run the global composer command
+        
+          # Run Composer as ec2-user, then restore ownership
+          chown -R ec2-user:ec2-user /var/www/html
           cd /var/www/html
-          composer require mongodb/mongodb
-
-          # Set correct ownership and permissions
+          sudo -u ec2-user composer require mongodb/mongodb
           chown -R apache:apache /var/www/html
           chmod -R 755 /var/www/html
-          
-          # Enable and start services in the correct order
+        
+          # Enable and start services
           systemctl enable php-fpm
           systemctl start php-fpm
           systemctl enable httpd
           systemctl start httpd
+          systemctl restart httpd
       Tags:
         - Key: Name
           Value: !Sub 'web-server-instance-${GroupName}'
