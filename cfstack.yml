@@ -1,0 +1,375 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'CloudFormation stack for the 503AZ UrbanGrow Group Project. Creates a scalable and deliberately insecure environment with a self-hosted MongoDB on EC2.'
+
+Parameters:
+  GroupName:
+    Type: String
+    Description: The unique group name or number to tag resources (e.g., Group-01).
+  GroupSize:
+    Type: Number
+    Description: The number of students in the group.
+    Default: 2
+    AllowedValues: [2, 3]
+  KeyName:
+    Type: 'AWS::EC2::KeyPair::KeyName'
+    Description: Name of an existing EC2 KeyPair to enable SSH access to the instances.
+
+Conditions:
+  CreateVDI: !Equals [!Ref GroupSize, 3]
+
+Resources:
+  # ------------------------------------------------------------#
+  # Networking
+  # ------------------------------------------------------------#
+  VPC:
+    Type: 'AWS::EC2::VPC'
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: !Sub 'urbangrow-vpc-${GroupName}'
+        - Key: GroupName
+          Value: !Ref GroupName
+
+  InternetGateway:
+    Type: 'AWS::EC2::InternetGateway'
+    Properties:
+      Tags:
+        - Key: GroupName
+          Value: !Ref GroupName
+
+  AttachGateway:
+    Type: 'AWS::EC2::VPCGatewayAttachment'
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
+
+  PublicSubnet1:
+    Type: 'AWS::EC2::Subnet'
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.0.1.0/24
+      AvailabilityZone: !Select [0, !GetAZs '']
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub 'urbangrow-public-subnet-1-${GroupName}'
+        - Key: GroupName
+          Value: !Ref GroupName
+
+  PublicSubnet2:
+    Type: 'AWS::EC2::Subnet'
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.0.2.0/24
+      AvailabilityZone: !Select [1, !GetAZs '']
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub 'urbangrow-public-subnet-2-${GroupName}'
+        - Key: GroupName
+          Value: !Ref GroupName
+
+  PrivateSubnet1:
+    Type: 'AWS::EC2::Subnet'
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.0.10.0/24
+      AvailabilityZone: !Select [0, !GetAZs '']
+      Tags:
+        - Key: Name
+          Value: !Sub 'urbangrow-private-subnet-1-${GroupName}'
+        - Key: GroupName
+          Value: !Ref GroupName
+
+  PrivateSubnet2:
+    Type: 'AWS::EC2::Subnet'
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.0.11.0/24
+      AvailabilityZone: !Select [1, !GetAZs '']
+      Tags:
+        - Key: Name
+          Value: !Sub 'urbangrow-private-subnet-2-${GroupName}'
+        - Key: GroupName
+          Value: !Ref GroupName
+  
+  EIP:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+
+  NatGateway:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt EIP.AllocationId
+      SubnetId: !Ref PublicSubnet1
+      Tags:
+        - Key: Name
+          Value: !Sub 'urbangrow-nat-${GroupName}'
+        - Key: GroupName
+          Value: !Ref GroupName
+
+  PublicRouteTable:
+    Type: 'AWS::EC2::RouteTable'
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub 'urbangrow-public-rt-${GroupName}'
+        - Key: GroupName
+          Value: !Ref GroupName
+
+  DefaultPublicRoute:
+    Type: 'AWS::EC2::Route'
+    DependsOn: AttachGateway
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+  
+  PublicSubnet1RouteTableAssociation:
+    Type: 'AWS::EC2::SubnetRouteTableAssociation'
+    Properties:
+      SubnetId: !Ref PublicSubnet1
+      RouteTableId: !Ref PublicRouteTable
+
+  PublicSubnet2RouteTableAssociation:
+    Type: 'AWS::EC2::SubnetRouteTableAssociation'
+    Properties:
+      SubnetId: !Ref PublicSubnet2
+      RouteTableId: !Ref PublicRouteTable
+      
+  PrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub 'urbangrow-private-rt-${GroupName}'
+        - Key: GroupName
+          Value: !Ref GroupName
+
+  DefaultPrivateRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NatGateway
+
+  PrivateSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      SubnetId: !Ref PrivateSubnet1
+
+  PrivateSubnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      SubnetId: !Ref PrivateSubnet2
+
+  # ------------------------------------------------------------#
+  # Asset 2: MongoDB EC2 Instance (Student 2)
+  # ------------------------------------------------------------#
+  MongoSecurityGroup:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      GroupDescription: 'Insecure - Allows all traffic to MongoDB'
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 27017
+          ToPort: 27017
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: !Sub 'mongodb-sg-${GroupName}'
+        - Key: GroupName
+          Value: !Ref GroupName
+
+  MongoEC2Instance:
+    Type: 'AWS::EC2::Instance'
+    Properties:
+      InstanceType: t3.small
+      SubnetId: !Ref PrivateSubnet1
+      KeyName: !Ref KeyName
+      SecurityGroupIds:
+        - !Ref MongoSecurityGroup
+      ImageId: ami-0c55b159cbfafe1f0 # Amazon Linux 2023
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          # Install MongoDB
+          echo "[mongodb-org-7.0]" >> /etc/yum.repos.d/mongodb-org-7.0.repo
+          echo "name=MongoDB Repository" >> /etc/yum.repos.d/mongodb-org-7.0.repo
+          echo "baseurl=https://repo.mongodb.org/yum/amazon/2023/mongodb-org/7.0/x86_64/" >> /etc/yum.repos.d/mongodb-org-7.0.repo
+          echo "gpgcheck=1" >> /etc/yum.repos.d/mongodb-org-7.0.repo
+          echo "enabled=1" >> /etc/yum.repos.d/mongodb-org-7.0.repo
+          echo "gpgkey=https://www.mongodb.org/static/pgp/server-7.0.asc" >> /etc/yum.repos.d/mongodb-org-7.0.repo
+          dnf install -y mongodb-org
+          # Start and enable MongoDB
+          systemctl start mongod
+          systemctl enable mongod
+          # Insecurely configure MongoDB to listen on all interfaces
+          sed -i 's/bindIp: 127.0.0.1/bindIp: 0.0.0.0/g' /etc/mongod.conf
+          systemctl restart mongod
+      Tags:
+        - Key: Name
+          Value: !Sub 'mongodb-instance-${GroupName}'
+        - Key: GroupName
+          Value: !Ref GroupName
+          
+  # ------------------------------------------------------------#
+  # Asset 1: Public Web Server (Student 1)
+  # ------------------------------------------------------------#
+  WebServerSecurityGroup:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      GroupDescription: 'Insecure - Allows public HTTP traffic'
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: !Sub 'web-server-sg-${GroupName}'
+        - Key: GroupName
+          Value: !Ref GroupName
+          
+  WebServerInstance:
+    Type: 'AWS::EC2::Instance'
+    Properties:
+      InstanceType: t2.micro
+      SubnetId: !Ref PublicSubnet1
+      KeyName: !Ref KeyName
+      SecurityGroupIds:
+        - !Ref WebServerSecurityGroup
+      ImageId: ami-0c55b159cbfafe1f0 # Amazon Linux 2023
+      AssociatePublicIpAddress: true
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          dnf update -y
+          dnf install -y httpd php php-cli php-pear
+          
+          # Install MongoDB PHP Driver
+          pecl channel-update pecl.php.net
+          pecl install mongodb
+          echo "extension=mongodb.so" >> /etc/php.ini
+          
+          systemctl enable httpd
+          systemctl start httpd
+          
+          # Write the PHP application to display crop data from MongoDB
+          cat <<EOF > /var/www/html/index.php
+          <!DOCTYPE html>
+          <html>
+          <head>
+              <title>UrbanGrow Crop Data</title>
+              <style>
+                  body { font-family: Arial, sans-serif; margin: 2em; background-color: #f4f4f4; color: #333; }
+                  h1 { color: #2e8b57; }
+                  table { border-collapse: collapse; width: 100%; box-shadow: 0 2px 3px rgba(0,0,0,0.1); }
+                  th, td { border: 1px solid #ddd; padding: 12px; text-align: left; }
+                  th { background-color: #2e8b57; color: white; }
+                  tr:nth-child(even) { background-color: #f9f9f9; }
+                  .error { color: red; font-weight: bold; }
+              </style>
+          </head>
+          <body>
+          <h1>UrbanGrow Live Crop Data</h1>
+          <?php
+          require '/var/www/html/vendor/autoload.php';
+          // INSECURE: Connecting directly from a public web server to the database using its private IP.
+          \$mongoIp = "${MongoEC2Instance.PrivateIp}";
+          \$uri = "mongodb://\$mongoIp:27017";
+          try {
+              \$client = new MongoDB\Client(\$uri);
+              \$collection = \$client->urbangrow->crop_data;
+              \$cursor = \$collection->find();
+              echo "<table>";
+              echo "<tr><th>Batch ID</th><th>Species</th><th>Status</th><th>Temperature (&deg;C)</th><th>Humidity (%)</th></tr>";
+              foreach (\$cursor as \$document) {
+                  echo "<tr>";
+                  echo "<td>" . htmlspecialchars(\$document['batch_id'] ?? 'N/A') . "</td>";
+                  echo "<td>" . htmlspecialchars(\$document['species'] ?? 'N/A') . "</td>";
+                  echo "<td>" . htmlspecialchars(\$document['status'] ?? 'N/A') . "</td>";
+                  echo "<td>" . htmlspecialchars(\$document['sensor_readings']['temperature_c'] ?? 'N/A') . "</td>";
+                  echo "<td>" . htmlspecialchars(\$document['sensor_readings']['humidity_percent'] ?? 'N/A') . "</td>";
+                  echo "</tr>";
+              }
+              echo "</table>";
+          } catch (Exception \$e) {
+              echo "<p class='error'>Failed to connect to MongoDB: " . \$e->getMessage() . "</p>";
+          }
+          ?>
+          </body>
+          </html>
+          EOF
+
+          # Install Composer and dependencies for the MongoDB driver
+          cd /var/www/html
+          curl -sS https://getcomposer.org/installer | php
+          php composer.phar require mongodb/mongodb
+          chown -R apache:apache /var/www/html
+          chmod -R 755 /var/www/html
+          systemctl restart httpd
+      Tags:
+        - Key: Name
+          Value: !Sub 'web-server-instance-${GroupName}'
+        - Key: GroupName
+          Value: !Ref GroupName
+
+  # ------------------------------------------------------------#
+  # Asset 3: VDI Instance (Student 3 - Conditional)
+  # ------------------------------------------------------------#
+  VDISecurityGroup:
+    Type: 'AWS::EC2::SecurityGroup'
+    Condition: CreateVDI
+    Properties:
+      GroupDescription: 'Insecure - Allows public RDP traffic'
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 3389
+          ToPort: 3389
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: !Sub 'vdi-sg-${GroupName}'
+        - Key: GroupName
+          Value: !Ref GroupName
+
+  VDIInstance:
+    Type: 'AWS::EC2::Instance'
+    Condition: CreateVDI
+    Properties:
+      InstanceType: t3.medium
+      ImageId: ami-0b1f2b17be9b81cdc # Windows Server 2019
+      KeyName: !Ref KeyName
+      SubnetId: !Ref PublicSubnet1 # Insecurely placed in a public subnet for easy access
+      SecurityGroupIds:
+        - !Ref VDISecurityGroup
+      Tags:
+        - Key: Name
+          Value: !Sub 'vdi-instance-${GroupName}'
+        - Key: GroupName
+          Value: !Ref GroupName
+          
+Outputs:
+  WebServerPublicIP:
+    Description: 'Public IP address of the Web Server'
+    Value: !GetAtt WebServerInstance.PublicIp
+  MongoServerPrivateIP:
+    Description: 'The Private IP of the MongoDB EC2 Instance. Use this to connect from other instances in the VPC.'
+    Value: !GetAtt MongoEC2Instance.PrivateIp
+  VDIInstanceId:
+    Description: 'Instance ID of the VDI instance (if created)'
+    Condition: CreateVDI
+    Value: !Ref VDIInstance
+
