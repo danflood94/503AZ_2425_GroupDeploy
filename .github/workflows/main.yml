@@ -51,6 +51,6 @@ jobs:
           # Note: The UserData script on the EC2 instance can take a minute to run.
           # We add a sleep here to give it time to install and start MongoDB before we try to connect.
           sleep 60 
-          mongosh "mongodb://${{ env.DB_SERVER_IP }}:27017" < load-database.js
+          mongosh "mongodb://${{ env.DB_SERVER_IP }}:27017" < DBLoad.js
 
 
