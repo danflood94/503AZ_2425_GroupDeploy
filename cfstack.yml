@@ -342,9 +342,9 @@ Outputs:
   WebServerPublicIP:
     Description: 'Public IP address of the Web Server'
     Value: !GetAtt WebServerInstance.PublicIp
-  MongoServerPrivateIP:
+  MongoServerPublicIP:
     Description: 'The Private IP of the MongoDB EC2 Instance. Use this to connect from other instances in the VPC.'
-    Value: !GetAtt MongoEC2Instance.PrivateIp
+    Value: !GetAtt MongoEC2Instance.PublicIp
   VDIInstanceId:
     Description: 'Instance ID of the VDI instance (if created)'
     Condition: CreateVDI
