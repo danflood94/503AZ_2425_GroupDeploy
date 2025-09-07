@@ -232,7 +232,7 @@ Resources:
           #!/bin/bash
           dnf update -y
           
-          # **FIX**: Add MongoDB repository to find mongodb-mongosh
+          # Add MongoDB repository to find mongodb-mongosh
           echo "[mongodb-org-7.0]" > /etc/yum.repos.d/mongodb-org-7.0.repo
           echo "name=MongoDB Repository" >> /etc/yum.repos.d/mongodb-org-7.0.repo
           echo "baseurl=https://repo.mongodb.org/yum/amazon/2023/mongodb-org/7.0/x86_64/" >> /etc/yum.repos.d/mongodb-org-7.0.repo
@@ -240,8 +240,12 @@ Resources:
           echo "enabled=1" >> /etc/yum.repos.d/mongodb-org-7.0.repo
           echo "gpgkey=https://www.mongodb.org/static/pgp/server-7.0.asc" >> /etc/yum.repos.d/mongodb-org-7.0.repo
           
-          # **FIX**: Use correct, generic package names for AL2023
+          # Use correct, generic package names for AL2023
           dnf install -y httpd php php-pear mongodb-mongosh php-devel gcc make
+          
+          # Install Composer globally for a more robust installation
+          curl -sS https://getcomposer.org/installer | php
+          mv composer.phar /usr/local/bin/composer
           
           # Install MongoDB PHP Driver
           pecl channel-update pecl.php.net
@@ -307,17 +311,15 @@ Resources:
           </html>
           EOF
 
-          # Change directory BEFORE downloading and running composer.
+          # Change directory and run the global composer command
           cd /var/www/html
-          curl -sS https://getcomposer.org/installer | php
-          # Set HOME environment variable for the root user to allow composer to run
-          HOME=/root php composer.phar require mongodb/mongodb
+          composer require mongodb/mongodb
 
           # Set correct ownership and permissions
           chown -R apache:apache /var/www/html
           chmod -R 755 /var/www/html
           
-          # **FIX**: Enable and start services in the correct order
+          # Enable and start services in the correct order
           systemctl enable php-fpm
           systemctl start php-fpm
           systemctl enable httpd
