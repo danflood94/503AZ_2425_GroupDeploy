@@ -231,18 +231,31 @@ Resources:
         Fn::Base64: !Sub |
           #!/bin/bash
           dnf update -y
-          dnf install -y httpd php php-cli php-pear
+          # **FIX**: Add the specific PHP development package (php8.4-devel) and build tools.
+          dnf install -y httpd php8.4-cli php8.4-pear mongodb-mongosh php8.4-devel gcc make
           
           # Install MongoDB PHP Driver
           pecl channel-update pecl.php.net
           pecl install mongodb
           echo "extension=mongodb.so" >> /etc/php.ini
+
+          # Turn on error display in php.ini for easier debugging
+          sed -i 's/display_errors = Off/display_errors = On/' /etc/php.ini
+          
+          # Allow Apache to make network connections for SELinux
+          setsebool -P httpd_can_network_connect 1
           
           systemctl enable httpd
           systemctl start httpd
           
           # Write the PHP application to display crop data from MongoDB
           cat <<EOF > /var/www/html/index.php
+          <?php
+          // Force error reporting to the browser for debugging
+          ini_set('display_errors', 1);
+          ini_set('display_startup_errors', 1);
+          error_reporting(E_ALL);
+          ?>
           <!DOCTYPE html>
           <html>
           <head>
@@ -261,8 +274,8 @@ Resources:
           <h1>UrbanGrow Live Crop Data</h1>
           <?php
           require '/var/www/html/vendor/autoload.php';
-          // INSECURE: Connecting directly from a public web server to the database using its private IP.
-          \$mongoIp = "${MongoEC2Instance.PrivateIp}";
+          // INSECURE: Connecting directly from a public web server to the database using its public IP.
+          \$mongoIp = "${MongoEC2Instance.PublicIp}";
           \$uri = "mongodb://\$mongoIp:27017";
           try {
               \$client = new MongoDB\Client(\$uri);
@@ -288,12 +301,16 @@ Resources:
           </html>
           EOF
 
-          # Install Composer and dependencies for the MongoDB driver
+          # **FIX**: Change directory BEFORE downloading and running composer.
           cd /var/www/html
           curl -sS https://getcomposer.org/installer | php
           php composer.phar require mongodb/mongodb
+
+          # Set correct ownership and permissions
           chown -R apache:apache /var/www/html
           chmod -R 755 /var/www/html
+          
+          # Restart the web server to apply all changes
           systemctl restart httpd
       Tags:
         - Key: Name
