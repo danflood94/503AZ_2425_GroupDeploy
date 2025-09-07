@@ -96,22 +96,6 @@ Resources:
         - Key: GroupName
           Value: !Ref GroupName
   
-  EIP:
-    Type: AWS::EC2::EIP
-    Properties:
-      Domain: vpc
-
-  NatGateway:
-    Type: AWS::EC2::NatGateway
-    Properties:
-      AllocationId: !GetAtt EIP.AllocationId
-      SubnetId: !Ref PublicSubnet1
-      Tags:
-        - Key: Name
-          Value: !Sub 'urbangrow-nat-${GroupName}'
-        - Key: GroupName
-          Value: !Ref GroupName
-
   PublicRouteTable:
     Type: 'AWS::EC2::RouteTable'
     Properties:
@@ -152,13 +136,6 @@ Resources:
         - Key: GroupName
           Value: !Ref GroupName
 
-  DefaultPrivateRoute:
-    Type: AWS::EC2::Route
-    Properties:
-      RouteTableId: !Ref PrivateRouteTable
-      DestinationCidrBlock: 0.0.0.0/0
-      NatGatewayId: !Ref NatGateway
-
   PrivateSubnet1RouteTableAssociation:
     Type: AWS::EC2::SubnetRouteTableAssociation
     Properties:
@@ -194,7 +171,7 @@ Resources:
     Type: 'AWS::EC2::Instance'
     Properties:
       InstanceType: t3.small
-      SubnetId: !Ref PrivateSubnet1
+      SubnetId: !Ref PublicSubnet1
       KeyName: !Ref KeyName
       SecurityGroupIds:
         - !Ref MongoSecurityGroup
