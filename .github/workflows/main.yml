@@ -22,7 +22,7 @@ jobs:
         run: |
           aws cloudformation deploy \
             --stack-name ${{ secrets.GROUP_NAME }}-urbangrow-stack \
-            --template-file urbangrow-main.yml \
+            --template-file cfstack.yml \
             --capabilities CAPABILITY_IAM \
             --parameter-overrides \
               GroupName=${{ secrets.GROUP_NAME }} \
