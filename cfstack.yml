@@ -334,7 +334,7 @@ Resources:
                             <td><?= htmlspecialchars($doc['name'] ?? 'N/A') ?></td>
                             <td><?= htmlspecialchars($doc['job_role'] ?? 'N/A') ?></td>
                             <td><?= htmlspecialchars($doc['contact'] ?? 'N/A') ?></td>
-                            <td><?= htmlspecialchars(implode(", ", $doc['qualifications'] ?? [])) ?></td>
+                            <td><?= htmlspecialchars(implode(", ", iterator_to_array($doc['qualifications'] ?? []))) ?></td>
                         </tr>
                     <?php endforeach; ?>
                 </table>
@@ -348,7 +348,7 @@ Resources:
                     <?php foreach ($db->operational_data->find() as $doc): ?>
                         <tr>
                             <td><?= htmlspecialchars($doc['log_id'] ?? 'N/A') ?></td>
-                            <td><?= htmlspecialchars($doc['timestamp']->toDateTime()->format('Y-m-d H:i:s') ?? 'N/A') ?></td>
+                            <td><?= $doc['timestamp'] ? htmlspecialchars($doc['timestamp']->toDateTime()->format('Y-m-d H:i:s')) : 'N/A' ?></td>
                             <td><?= htmlspecialchars($doc['system'] ?? 'N/A') ?></td>
                             <td><?= htmlspecialchars($doc['event_type'] ?? 'N/A') ?></td>
                             <td><pre><?= htmlspecialchars(json_encode($doc['details'] ?? [], JSON_PRETTY_PRINT)) ?></pre></td>
@@ -432,4 +432,6 @@ Outputs:
     Description: 'Instance ID of the VDI instance (if created)'
     Condition: CreateVDI
     Value: !Ref VDIInstance
+
+
 
