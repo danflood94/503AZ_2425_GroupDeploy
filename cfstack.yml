@@ -175,7 +175,7 @@ Resources:
       KeyName: !Ref KeyName
       SecurityGroupIds:
         - !Ref MongoSecurityGroup
-      ImageId: ami-0c55b159cbfafe1f0 # Amazon Linux 2023
+      ImageId: ami-00ca32bbc84273381 # Amazon Linux 2023
       UserData:
         Fn::Base64: !Sub |
           #!/bin/bash
@@ -226,7 +226,7 @@ Resources:
       KeyName: !Ref KeyName
       SecurityGroupIds:
         - !Ref WebServerSecurityGroup
-      ImageId: ami-0c55b159cbfafe1f0 # Amazon Linux 2023
+      ImageId: ami-00ca32bbc84273381 # Amazon Linux 2023
       UserData:
         Fn::Base64: !Sub |
           #!/bin/bash
@@ -326,7 +326,7 @@ Resources:
     Condition: CreateVDI
     Properties:
       InstanceType: t3.medium
-      ImageId: ami-0b1f2b17be9b81cdc # Windows Server 2019
+      ImageId: ami-0efee5160a1079475 # Windows Server 2025 Base
       KeyName: !Ref KeyName
       SubnetId: !Ref PublicSubnet1 # Insecurely placed in a public subnet for easy access
       SecurityGroupIds:
