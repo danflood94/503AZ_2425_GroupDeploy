@@ -250,6 +250,9 @@ Resources:
                          php-cli php-json php-openssl unzip \
                          mongodb-mongosh
         
+          # **FIX**: Set HOME variable for Composer installer
+          export HOME=/root
+          
           # Install Composer globally
           curl -sS https://getcomposer.org/installer | php
           mv composer.phar /usr/local/bin/composer
@@ -276,7 +279,7 @@ Resources:
         
           require '/var/www/html/vendor/autoload.php';
         
-          $mongoIp = "${MongoEC2Instance.PrivateIp}";
+          $mongoIp = "${MongoEC2Instance.PublicIp}";
           $uri = "mongodb://$mongoIp:27017";
         
           try {
@@ -423,7 +426,7 @@ Outputs:
     Description: 'Public IP address of the Web Server'
     Value: !GetAtt WebServerInstance.PublicIp
   MongoServerPublicIP:
-    Description: 'The Private IP of the MongoDB EC2 Instance. Use this to connect from other instances in the VPC.'
+    Description: 'The Public IP of the MongoDB EC2 Instance. Use this to connect from other instances in the VPC.'
     Value: !GetAtt MongoEC2Instance.PublicIp
   VDIInstanceId:
     Description: 'Instance ID of the VDI instance (if created)'
