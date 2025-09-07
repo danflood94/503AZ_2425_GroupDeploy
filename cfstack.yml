@@ -231,8 +231,17 @@ Resources:
         Fn::Base64: !Sub |
           #!/bin/bash
           dnf update -y
-          # **FIX**: Add the specific PHP development package (php8.4-devel) and build tools.
-          dnf install -y httpd php8.4-cli php8.4-pear mongodb-mongosh php8.4-devel gcc make
+          
+          # **FIX**: Add MongoDB repository to find mongodb-mongosh
+          echo "[mongodb-org-7.0]" > /etc/yum.repos.d/mongodb-org-7.0.repo
+          echo "name=MongoDB Repository" >> /etc/yum.repos.d/mongodb-org-7.0.repo
+          echo "baseurl=https://repo.mongodb.org/yum/amazon/2023/mongodb-org/7.0/x86_64/" >> /etc/yum.repos.d/mongodb-org-7.0.repo
+          echo "gpgcheck=1" >> /etc/yum.repos.d/mongodb-org-7.0.repo
+          echo "enabled=1" >> /etc/yum.repos.d/mongodb-org-7.0.repo
+          echo "gpgkey=https://www.mongodb.org/static/pgp/server-7.0.asc" >> /etc/yum.repos.d/mongodb-org-7.0.repo
+          
+          # **FIX**: Use correct, generic package names for AL2023
+          dnf install -y httpd php php-pear mongodb-mongosh php-devel gcc make
           
           # Install MongoDB PHP Driver
           pecl channel-update pecl.php.net
@@ -244,9 +253,6 @@ Resources:
           
           # Allow Apache to make network connections for SELinux
           setsebool -P httpd_can_network_connect 1
-          
-          systemctl enable httpd
-          systemctl start httpd
           
           # Write the PHP application to display crop data from MongoDB
           cat <<EOF > /var/www/html/index.php
@@ -274,8 +280,8 @@ Resources:
           <h1>UrbanGrow Live Crop Data</h1>
           <?php
           require '/var/www/html/vendor/autoload.php';
-          // INSECURE: Connecting directly from a public web server to the database using its public IP.
-          \$mongoIp = "${MongoEC2Instance.PublicIp}";
+          // INSECURE: Connecting directly from a public web server to the database using its private IP.
+          \$mongoIp = "${MongoEC2Instance.PrivateIp}";
           \$uri = "mongodb://\$mongoIp:27017";
           try {
               \$client = new MongoDB\Client(\$uri);
@@ -301,17 +307,21 @@ Resources:
           </html>
           EOF
 
-          # **FIX**: Change directory BEFORE downloading and running composer.
+          # Change directory BEFORE downloading and running composer.
           cd /var/www/html
           curl -sS https://getcomposer.org/installer | php
-          php composer.phar require mongodb/mongodb
+          # Set HOME environment variable for the root user to allow composer to run
+          HOME=/root php composer.phar require mongodb/mongodb
 
           # Set correct ownership and permissions
           chown -R apache:apache /var/www/html
           chmod -R 755 /var/www/html
           
-          # Restart the web server to apply all changes
-          systemctl restart httpd
+          # **FIX**: Enable and start services in the correct order
+          systemctl enable php-fpm
+          systemctl start php-fpm
+          systemctl enable httpd
+          systemctl start httpd
       Tags:
         - Key: Name
           Value: !Sub 'web-server-instance-${GroupName}'
